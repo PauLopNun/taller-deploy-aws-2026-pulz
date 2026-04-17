@@ -54,12 +54,11 @@ jobs:
     needs: test
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-          cache: maven
-      - name: Give execute permission
-        run: chmod +x mvnw
-      - name: Build
-        run: ./mvnw package -DskipTests
+      - name: Build Docker image
+        run: docker build -f Dockerfile -t practica:${{ github.sha }} .
+      - name: Show Docker image size
+        run: |
+          IMAGE_TAG="practica:${{ github.sha }}"
+          SIZE_BYTES=$(docker image inspect "$IMAGE_TAG" --format='{{.Size}}')
+          SIZE_MB=$(awk "BEGIN {printf \"%.2f\", $SIZE_BYTES/1024/1024}")
+          echo "Image size: ${SIZE_BYTES} bytes (${SIZE_MB} MB)"
