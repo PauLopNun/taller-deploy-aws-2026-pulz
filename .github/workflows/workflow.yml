@@ -44,6 +44,8 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: maven
+      - name: Give execute permission
+        run: chmod +x mvnw
       - name: Run tests
         run: ./mvnw test
 
@@ -57,5 +59,7 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: maven
+      - name: Give execute permission
+        run: chmod +x mvnw
       - name: Build
         run: ./mvnw package -DskipTests
