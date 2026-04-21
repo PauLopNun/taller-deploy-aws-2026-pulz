@@ -1,8 +1,6 @@
-name: Deploy to ECR
+name: Deploy to ECS
 
 on:
-  push:
-    branches: ["**"]
   workflow_dispatch:
 
 permissions:
@@ -11,59 +9,60 @@ permissions:
 
 env:
   AWS_REGION: eu-west-1
-  ECR_REPOSITORY: taller-deploy-aws-2026-repository-pulz
   ACCOUNT_ID: 822414985516
+  ECR_REPOSITORY: taller-deploy-aws-2026-repository-rnez
+  ECS_CLUSTER: taller-deploy-aws-2026-cluster-rnez
+  ECS_SERVICE: taller-deploy-aws-2026-task-rnez-service-e0u5ffux
+  TASK_DEFINITION: taller-deploy-aws-2026-task-rnez
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 21
-
-      - name: Give execute permission to mvnw
-        run: chmod +x mvnw
-
-      - name: Build application (JAR)
-        run: ./mvnw clean package -DskipTests
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::822414985516:role/taller-deploy-aws-2026-rol-pulz
+          role-to-assume: arn:aws:iam::822414985516:role/taller-deploy-aws-2026-rol-rnez
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Login to Amazon ECR
+      - name: Get current task definition
         run: |
-          aws ecr get-login-password --region $AWS_REGION \
-          | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+          aws ecs describe-task-definition \
+            --task-definition $TASK_DEFINITION \
+            --query taskDefinition > task-definition.json
 
-      - name: Build Docker image
+      - name: Clean task definition
         run: |
-          docker build -f Dockerfile -t $ECR_REPOSITORY:latest .
+          jq 'del(
+            .taskDefinitionArn,
+            .revision,
+            .status,
+            .requiresAttributes,
+            .compatibilities,
+            .registeredAt,
+            .registeredBy
+          )' task-definition.json > new-task-definition.json
 
-      - name: Show Docker image size
+      - name: Update image in task definition
         run: |
-          IMAGE_TAG="$ECR_REPOSITORY:latest"
-          SIZE_BYTES=$(docker image inspect "$IMAGE_TAG" --format='{{.Size}}')
-          SIZE_MB=$(awk "BEGIN {printf \"%.2f\", $SIZE_BYTES/1024/1024}")
-          echo "Image size: ${SIZE_BYTES} bytes (${SIZE_MB} MB)"
+          IMAGE=$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:latest
+          jq --arg IMAGE "$IMAGE" \
+            '.containerDefinitions[0].image = $IMAGE' \
+            new-task-definition.json > final-task-definition.json
 
-      - name: Tag image
+      - name: Register new task definition
         run: |
-          docker tag $ECR_REPOSITORY:latest $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:latest
+          aws ecs register-task-definition \
+            --cli-input-json file://final-task-definition.json
 
-      - name: Push image to ECR
+      - name: Update ECS service
         run: |
-          docker push $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:latest
-
-      - name: Show image info
-        run: docker images
+          aws ecs update-service \
+            --cluster $ECS_CLUSTER \
+            --service $ECS_SERVICE \
+            --force-new-deployment
 
